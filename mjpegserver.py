@@ -1,41 +1,58 @@
 import cv2
-from flask import Flask, render_template, Response
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
 
-app = Flask(__name__)
+video_file = "/Users/rihito/Movies/flv/ビデオ日記.mp4"
+ip_address = "192.168.2.110"
+port = 8080
 
-# 動画ファイルのパス
-VIDEO_PATH = "/Users/rihito/Movies/flv/ビデオ日記.mp4"
+class VideoStreamHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html; charset=utf-8')  # 文字エンコーディングを指定
+            self.end_headers()
+            self.wfile.write(bytes('<html><head><title>Video Stream</title></head>', 'utf-8'))
+            self.wfile.write(bytes('<body><h1>こんにちは</h1><button onclick="startStream()">表示</button>', 'utf-8'))
+            self.wfile.write(bytes('<img id="stream" src="" width="640" height="480" />', 'utf-8'))
+            self.wfile.write(bytes('<script>', 'utf-8'))
+            self.wfile.write(bytes('function startStream() {', 'utf-8'))
+            self.wfile.write(bytes('var img = document.getElementById("stream");', 'utf-8'))
+            self.wfile.write(bytes('img.src = "http://' + ip_address + ':' + str(port) + '/stream.mjpg";', 'utf-8'))
+            self.wfile.write(bytes('}', 'utf-8'))
+            self.wfile.write(bytes('</script></body></html>', 'utf-8'))
+        elif self.path == '/stream.mjpg':
+            self.send_response(200)
+            self.send_header('Content-type', 'multipart/x-mixed-replace; boundary=frame')
+            self.end_headers()
+            stream_video()
 
-
-def generate_frames():
-    # 動画ファイルを開く
-    video = cv2.VideoCapture(VIDEO_PATH)
-    
+def stream_video():
+    cap = cv2.VideoCapture(video_file)
     while True:
-        success, frame = video.read()
-        if not success:
+        ret, frame = cap.read()
+        if not ret:
             break
-        else:
-            # フレームをMJPEG形式にエンコードして返す
-            ret, buffer = cv2.imencode('.jpg', frame)
-            frame = buffer.tobytes()
-            
-            # ジェネレータとしてフレームを返す
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
+        _, img_encoded = cv2.imencode('.jpg', frame)
+        frame_data = b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + img_encoded.tobytes() + b'\r\n'
+        VideoStreamHandler.wfile.write(b'Content-Length: ' + bytes(str(len(frame_data)), 'utf-8') + b'\r\n')
+        VideoStreamHandler.wfile.write(b'\r\n')
+        VideoStreamHandler.wfile.write(frame_data)
+        VideoStreamHandler.wfile.write(b'\r\n')
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+    cap.release()
 
-
-@app.route('/video_feed')
-def video_feed():
-    # 動画フレームのジェネレータをレスポンスとして返す
-    return Response(generate_frames(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
-
+def start_server():
+    server_address = (ip_address, port)
+    http_server = HTTPServer(server_address, VideoStreamHandler)
+    http_server.serve_forever()
 
 if __name__ == '__main__':
-    app.run(host='192.168.2.110', debug=True)
+    server_thread = threading.Thread(target=start_server)
+    server_thread.daemon = True
+    server_thread.start()
+    print("Server started at http://" + ip_address + ":" + str(port))
+
+    while True:
+        pass
