@@ -15,10 +15,13 @@ class VideoStreamer(BaseHTTPRequestHandler):
         if self.path == '/':
             # ルートパスにアクセスがあった場合、「こんにちは」と「表示」ボタンを表示するHTMLを返す
             self.send_response(200)
-            self.send_header('Content-type', 'text/html')
+            self.send_header('Content-type', 'text/html; charset=utf-8')
             self.end_headers()
             html = '''
                 <html>
+                <head>
+                    <meta charset="UTF-8">
+                </head>
                 <body>
                     <h1>こんにちは</h1>
                     <button onclick="startVideo()">表示</button>
