@@ -1,57 +1,79 @@
 import cv2
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
-import time
+import webbrowser
 
 # 動画ファイルのパス
-VIDEO_FILE = "/Users/rihito/Movies/flv/ビデオ日記.mp4"
+video_path = "/Users/rihito/Movies/flv/ビデオ日記.mp4"
 
-# mjpgサーバーの設定
-MJPG_SERVER_PORT = 8080
-MJPG_SERVER_ADDRESS = ("", MJPG_SERVER_PORT)
+# mjpgサーバーのポート番号
+server_port = 8000
 
-
-class MJPGServerHandler(BaseHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.video_capture = cv2.VideoCapture(VIDEO_FILE)
-        self.frame_lock = threading.Lock()
-
+# 動画を配信するためのMJPEGサーバーのクラス
+class VideoStreamer(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path.endswith(".mjpg"):
+        if self.path == '/':
+            # ルートパスにアクセスがあった場合、「こんにちは」と「表示」ボタンを表示するHTMLを返す
             self.send_response(200)
-            self.send_header("Content-type", "multipart/x-mixed-replace; boundary=--jpgboundary")
+            self.send_header('Content-type', 'text/html')
             self.end_headers()
+            html = '''
+                <html>
+                <body>
+                    <h1>こんにちは</h1>
+                    <button onclick="startVideo()">表示</button>
+                    <br>
+                    <img id="video" style="display: none;" src="/video_feed.mjpg">
+                    <script>
+                        function startVideo() {
+                            var videoElement = document.getElementById("video");
+                            videoElement.style.display = "block";
+                        }
+                    </script>
+                </body>
+                </html>
+            '''
+            self.wfile.write(html.encode('utf-8'))
+        elif self.path == '/video_feed.mjpg':
+            # /video_feed.mjpgにアクセスがあった場合、動画をフレーム単位でMJPEG形式で配信する
+            self.send_response(200)
+            self.send_header('Content-type', 'multipart/x-mixed-replace; boundary=frame')
+            self.end_headers()
+            cap = cv2.VideoCapture(video_path)
             while True:
-                ret, frame = self.video_capture.read()
+                ret, frame = cap.read()
                 if not ret:
                     break
-                _, img_encoded = cv2.imencode(".jpg", frame)
-                jpg_data = b"--jpgboundary\r\n"
-                jpg_data += b"Content-type: image/jpeg\r\n\r\n"
-                jpg_data += bytearray(img_encoded)
-                jpg_data += b"\r\n\r\n"
-                with self.frame_lock:
-                    self.wfile.write(jpg_data)
-                time.sleep(0.03)  # サーバーのフレームレート調整（0.03秒ごとにフレームを送信）
+                ret, encoded_frame = cv2.imencode('.jpg', frame)
+                if not ret:
+                    break
+                self.wfile.write(b'--frame\r\n')
+                self.send_header('Content-type', 'image/jpeg')
+                self.send_header('Content-length', len(encoded_frame))
+                self.end_headers()
+                self.wfile.write(encoded_frame)
+                self.wfile.write(b'\r\n')
+            cap.release()
+        else:
+            self.send_response(404)
 
     def log_message(self, format, *args):
-        # ログメッセージを表示しないようにオーバーライド
+        # ログ出力を抑制
+        return
+
+# メインの処理
+def main():
+    # MJPEGサーバーを別スレッドで起動
+    server_thread = threading.Thread(target=lambda: HTTPServer(('localhost', server_port), VideoStreamer).serve_forever())
+    server_thread.daemon = True
+    server_thread.start()
+
+    # ブラウザでページを開く
+    webbrowser.open_new_tab('http://localhost:{}/'.format(server_port))
+
+    # メインスレッドは終了しないようにする
+    while True:
         pass
 
-
-def run_mjpg_server():
-    httpd = HTTPServer(MJPG_SERVER_ADDRESS, MJPGServerHandler)
-    print("MJPG Server started on http://localhost:{}/".format(MJPG_SERVER_PORT))
-    httpd.serve_forever()
-
-
-# MJPGサーバーを別スレッドで実行
-mjpg_server_thread = threading.Thread(target=run_mjpg_server)
-mjpg_server_thread.daemon = True
-mjpg_server_thread.start()
-
-# メインスレッドでは他の処理を実行
-while True:
-    # 任意の処理を実行する
-    time.sleep(1)
+if __name__ == '__main__':
+    main()
