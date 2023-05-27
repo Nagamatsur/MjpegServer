@@ -1,74 +1,37 @@
 import cv2
-import threading
-from mjpeg_server import MJPEGServer
+from flask import Flask, Response, render_template
+import time
 
-# 動画ファイルのパス
-video_file = 'path/to/your/video.mp4'
+app = Flask(__name__)
+video_path = "/Users/rihito/Movies/flv/ビデオ日記.mp4"  # 動画ファイルのパス
 
-# ローカルでのIPアドレスとポート番号
-ip_address = '192.168.2.110'
-port = 8000
 
-# サーバーの起動
-server = MJPEGServer(ip_address, port)
-server.start()
-
-# 動画ストリーミング処理のスレッド
-def video_streaming():
-    # OpenCVを使用して動画を開く
-    cap = cv2.VideoCapture(video_file)
-    
-    while True:
-        # フレームの読み込み
+def generate_frames():
+    cap = cv2.VideoCapture(video_path)
+    while cap.isOpened():
         ret, frame = cap.read()
-        
-        if ret:
-            # フレームをサーバーに送信
-            server.send_frame(frame)
-        else:
-            # 動画の最後まで再生した場合はループを抜ける
+        if not ret:
             break
-    
-    # クリーンアップ
-    cap.release()
-    server.stop()
+        # フレームの処理（サイズ変更など）
+        frame = cv2.resize(frame, (640, 360))  # サイズを変更する場合は適宜調整
 
-# 動画ストリーミング処理のスレッドを開始
-thread = threading.Thread(target=video_streaming)
-thread.start()
+        # フレームをバイナリデータに変換して配信
+        ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 20])  # JPEG品質を80に設定
+        frame = buffer.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        time.sleep(0.015)
 
-# ブラウザからアクセスすると表示されるHTML
-html = '''
-<html>
-<head>
-    <script>
-        function displayVideo() {
-            // ビデオ要素を作成
-            var video = document.createElement('video');
-            video.src = 'http://{}:{}/stream.mjpg';
-            video.autoplay = true;
-            video.style.width = '100%';
-            
-            // ビデオを表示する要素に追加
-            var videoContainer = document.getElementById('video-container');
-            videoContainer.appendChild(video);
-            
-            // 表示ボタンを非表示にする
-            var displayButton = document.getElementById('display-button');
-            displayButton.style.display = 'none';
-        }
-    </script>
-</head>
-<body>
-    <h1>こんにちは</h1>
-    <button id="display-button" onclick="displayVideo()">表示</button>
-    <div id="video-container"></div>
-</body>
-</html>
-'''.format(ip_address, port)
 
-# サーバーにHTMLを登録
-server.register_html(html)
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-# サーバーの待機
-server.wait()
+
+@app.route('/video_feed')
+def video_feed():
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+if __name__ == '__main__':
+    app.run(host='192.168.2.110', debug=True)
