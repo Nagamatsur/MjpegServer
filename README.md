@@ -1,1 +1,1 @@
-# MjpegServer
+# mjpegServer
