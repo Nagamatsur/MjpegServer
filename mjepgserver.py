@@ -1,82 +1,41 @@
 import cv2
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import threading
-import webbrowser
+from flask import Flask, render_template, Response
+
+app = Flask(__name__)
 
 # 動画ファイルのパス
-video_path = "/Users/rihito/Movies/flv/ビデオ日記.mp4"
+VIDEO_PATH = 'path/to/your/video/file.mp4'
 
-# mjpgサーバーのポート番号
-server_port = 8000
 
-# 動画を配信するためのMJPEGサーバーのクラス
-class VideoStreamer(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/':
-            # ルートパスにアクセスがあった場合、「こんにちは」と「表示」ボタンを表示するHTMLを返す
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html; charset=utf-8')
-            self.end_headers()
-            html = '''
-                <html>
-                <head>
-                    <meta charset="UTF-8">
-                </head>
-                <body>
-                    <h1>こんにちは</h1>
-                    <button onclick="startVideo()">表示</button>
-                    <br>
-                    <img id="video" style="display: none;" src="/video_feed.mjpg">
-                    <script>
-                        function startVideo() {
-                            var videoElement = document.getElementById("video");
-                            videoElement.style.display = "block";
-                        }
-                    </script>
-                </body>
-                </html>
-            '''
-            self.wfile.write(html.encode('utf-8'))
-        elif self.path == '/video_feed.mjpg':
-            # /video_feed.mjpgにアクセスがあった場合、動画をフレーム単位でMJPEG形式で配信する
-            self.send_response(200)
-            self.send_header('Content-type', 'multipart/x-mixed-replace; boundary=frame')
-            self.end_headers()
-            cap = cv2.VideoCapture(video_path)
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                ret, encoded_frame = cv2.imencode('.jpg', frame)
-                if not ret:
-                    break
-                self.wfile.write(b'--frame\r\n')
-                self.send_header('Content-type', 'image/jpeg')
-                self.send_header('Content-length', len(encoded_frame))
-                self.end_headers()
-                self.wfile.write(encoded_frame)
-                self.wfile.write(b'\r\n')
-            cap.release()
-        else:
-            self.send_response(404)
-
-    def log_message(self, format, *args):
-        # ログ出力を抑制
-        return
-
-# メインの処理
-def main():
-    # MJPEGサーバーを別スレッドで起動
-    server_thread = threading.Thread(target=lambda: HTTPServer(('localhost', server_port), VideoStreamer).serve_forever())
-    server_thread.daemon = True
-    server_thread.start()
-
-    # ブラウザでページを開く
-    webbrowser.open_new_tab('http://localhost:{}/'.format(server_port))
-
-    # メインスレッドは終了しないようにする
+def generate_frames():
+    # 動画ファイルを開く
+    video = cv2.VideoCapture(VIDEO_PATH)
+    
     while True:
-        pass
+        success, frame = video.read()
+        if not success:
+            break
+        else:
+            # フレームをMJPEG形式にエンコードして返す
+            ret, buffer = cv2.imencode('.jpg', frame)
+            frame = buffer.tobytes()
+            
+            # ジェネレータとしてフレームを返す
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+@app.route('/video_feed')
+def video_feed():
+    # 動画フレームのジェネレータをレスポンスとして返す
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
+
 
 if __name__ == '__main__':
-    main()
+    app.run(host='192.168.2.110', debug=True)
