@@ -4,7 +4,7 @@ from flask import Flask, render_template, Response
 app = Flask(__name__)
 
 # 動画ファイルのパス
-VIDEO_PATH = 'path/to/your/video/file.mp4'
+VIDEO_PATH = "/Users/rihito/Movies/flv/ビデオ日記.mp4"
 
 
 def generate_frames():
